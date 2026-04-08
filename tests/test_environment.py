@@ -82,7 +82,7 @@ class TestEasyTask:
         for vid in ["vol-003", "vol-006", "vol-008", "vol-010"]:
             env.step(CloudFinOpsAction(action_type="delete_volume", target_id=vid))
         obs = env.step(CloudFinOpsAction(action_type="submit"))
-        assert obs.reward == 1.0
+        assert obs.reward >= 0.99
 
     def test_deleting_attached_volume_penalized(self, env):
         env.reset(task_id="cleanup_unused_volumes")
@@ -110,7 +110,7 @@ class TestMediumTask:
         for iid, nt in resizes:
             env.step(CloudFinOpsAction(action_type="resize_instance", target_id=iid, new_type=nt))
         obs = env.step(CloudFinOpsAction(action_type="submit"))
-        assert obs.reward == 1.0
+        assert obs.reward >= 0.99
 
     def test_sla_violation_penalized(self, env):
         env.reset(task_id="rightsize_overprovisioned")
@@ -127,7 +127,7 @@ class TestSpotTask:
         for iid in ["i-301", "i-302", "i-303", "i-304", "i-310"]:
             env.step(CloudFinOpsAction(action_type="convert_to_spot", target_id=iid))
         obs = env.step(CloudFinOpsAction(action_type="submit"))
-        assert obs.reward == 1.0
+        assert obs.reward >= 0.99
 
     def test_stateful_conversion_penalized(self, env):
         env.reset(task_id="spot_instance_migration")
@@ -154,7 +154,7 @@ class TestHardTask:
         for iid, nt in [("i-203", "c5.large"), ("i-206", "m5.large"), ("i-211", "c5.large"), ("i-215", "m5.large")]:
             env.step(CloudFinOpsAction(action_type="resize_instance", target_id=iid, new_type=nt))
         obs = env.step(CloudFinOpsAction(action_type="submit"))
-        assert obs.reward == 1.0
+        assert obs.reward >= 0.99
 
     def test_dependency_termination_blocked(self, env):
         env.reset(task_id="full_cost_optimization")
@@ -177,7 +177,7 @@ class TestRITask:
         for iid in ["i-401", "i-402", "i-403", "i-404", "i-409", "i-412"]:
             env.step(CloudFinOpsAction(action_type="purchase_ri", target_id=iid))
         obs = env.step(CloudFinOpsAction(action_type="submit"))
-        assert obs.reward == 1.0
+        assert obs.reward >= 0.99
 
     def test_deprecated_instance_penalized(self, env):
         env.reset(task_id="reserved_instance_planning")

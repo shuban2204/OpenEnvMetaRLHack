@@ -355,6 +355,11 @@ def compute_step_reward(
 
 # ── Final episode grader ────────────────────────────────────────────────────
 
+def _clamp_score(score: float) -> float:
+    """Clamp score to strictly between 0 and 1: (0.001, 0.999)."""
+    return round(max(0.001, min(score, 0.999)), 4)
+
+
 def grade_episode(
     task_id: str,
     savings_achieved: float,
@@ -362,29 +367,27 @@ def grade_episode(
     initial_state: CloudState,
     current_state: CloudState,
 ) -> float:
-    """Compute a final score in [0.0, 1.0] for the completed episode."""
+    """Compute a final score in (0.0, 1.0) — strictly between, never exact 0 or 1."""
     optimal = _compute_optimal_savings(task_id, initial_state)
     if optimal <= 0:
-        return 1.0
+        return 0.999
 
     savings_ratio = min(savings_achieved / optimal, 1.0)
 
     if task_id == "cleanup_unused_volumes":
         penalty = 0.25 * len(violations)
-        return round(max(savings_ratio - penalty, 0.0), 4)
+        return _clamp_score(savings_ratio - penalty)
 
     if task_id == "rightsize_overprovisioned":
         penalty = 0.20 * len(violations)
-        return round(max(savings_ratio - penalty, 0.0), 4)
+        return _clamp_score(savings_ratio - penalty)
 
     if task_id == "spot_instance_migration":
-        # 60% savings, 40% zero-violations
         violation_score = 1.0 if len(violations) == 0 else max(0.0, 1.0 - 0.20 * len(violations))
         score = 0.60 * savings_ratio + 0.40 * violation_score
-        return round(max(min(score, 1.0), 0.0), 4)
+        return _clamp_score(score)
 
     if task_id == "full_cost_optimization":
-        # Hard: 50% savings, 25% zero-violations, 25% completeness
         violation_score = 1.0 if len(violations) == 0 else max(0.0, 1.0 - 0.15 * len(violations))
         total_optimal = 0
         completed_optimal = 0
@@ -406,12 +409,10 @@ def grade_episode(
                     completed_optimal += 1
         completeness = completed_optimal / total_optimal if total_optimal > 0 else 1.0
         score = 0.50 * savings_ratio + 0.25 * violation_score + 0.25 * completeness
-        return round(max(min(score, 1.0), 0.0), 4)
+        return _clamp_score(score)
 
     if task_id == "reserved_instance_planning":
-        # Expert: 40% savings, 30% zero-violations, 30% precision
         violation_score = 1.0 if len(violations) == 0 else max(0.0, 1.0 - 0.20 * len(violations))
-        # Precision: of all purchase_ri actions, how many were correct?
         total_ri_actions = 0
         correct_ri_actions = 0
         for inst in initial_state.instances:
@@ -422,6 +423,6 @@ def grade_episode(
                     correct_ri_actions += 1
         precision = correct_ri_actions / total_ri_actions if total_ri_actions > 0 else 1.0
         score = 0.40 * savings_ratio + 0.30 * violation_score + 0.30 * precision
-        return round(max(min(score, 1.0), 0.0), 4)
+        return _clamp_score(score)
 
-    return round(max(savings_ratio, 0.0), 4)
+    return _clamp_score(savings_ratio)
