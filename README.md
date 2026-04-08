@@ -174,6 +174,38 @@ python inference.py
 | full_cost_optimization | Hard | **0.775** | 20 | Qwen2.5-72B-Instruct |
 | reserved_instance_planning | Expert | *pending* | - | Qwen2.5-72B-Instruct |
 
+## Architecture
+
+Agent → FastAPI Server → Environment Engine → Simulator → State & Reward → Agent
+
++----------------------+
+|   Agent (LLM / RL)   |
++----------------------+
+           |
+           v
++----------------------+
+|  FastAPI Server      |
+|     (app.py)         |
++----------------------+
+           |
+           v
++----------------------+
+|  Environment Engine  |
+|  (environment.py)    |
++----------------------+
+           |
+           v
++----------------------+
+|     Simulator        |
+|   (simulator.py)     |
++----------------------+
+           |
+           v
++----------------------+
+|   State + Reward     |
+| (Returned to Agent)  |
++----------------------+
+
 ## Project Structure
 
 ```
