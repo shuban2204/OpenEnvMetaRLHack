@@ -153,6 +153,19 @@ python inference.py
 | rightsize_overprovisioned | Medium | **0.507** | 8 | Qwen2.5-72B-Instruct |
 | full_cost_optimization | Hard | **0.775** | 20 | Qwen2.5-72B-Instruct |
 
+## Architecture
+
+Agent (LLM/RL)
+     ↓
+FastAPI Server (app.py)
+     ↓
+Environment Engine (environment.py)
+     ↓
+Simulator (simulator.py)
+     ↓
+State + Reward → Returned to Agent
+
+
 ## Project Structure
 
 ```
