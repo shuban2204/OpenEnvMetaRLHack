@@ -169,10 +169,10 @@ python inference.py
 | Task | Difficulty | Baseline Score | Steps | Model |
 |------|-----------|---------------|-------|-------|
 | cleanup_unused_volumes | Easy | **1.000** | 5 | Qwen2.5-72B-Instruct |
-| rightsize_overprovisioned | Medium | **0.507** | 8 | Qwen2.5-72B-Instruct |
-| spot_instance_migration | Medium-Hard | *pending* | - | Qwen2.5-72B-Instruct |
-| full_cost_optimization | Hard | **0.775** | 20 | Qwen2.5-72B-Instruct |
-| reserved_instance_planning | Expert | *pending* | - | Qwen2.5-72B-Instruct |
+| rightsize_overprovisioned | Medium | **0.400** | 12 | Qwen2.5-72B-Instruct |
+| spot_instance_migration | Medium-Hard | **1.000** | 14 | Qwen2.5-72B-Instruct |
+| full_cost_optimization | Hard | **0.644** | 20 | Qwen2.5-72B-Instruct |
+| reserved_instance_planning | Expert | **1.000** | 7 | Qwen2.5-72B-Instruct |
 
 ## Architecture
 
