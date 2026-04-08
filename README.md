@@ -147,11 +147,11 @@ python inference.py
 
 ## Baseline Scores
 
-| Task | Difficulty | Baseline Score |
-|------|-----------|---------------|
-| cleanup_unused_volumes | Easy | ~0.85–1.0 |
-| rightsize_overprovisioned | Medium | ~0.50–0.75 |
-| full_cost_optimization | Hard | ~0.30–0.55 |
+| Task | Difficulty | Baseline Score | Steps | Model |
+|------|-----------|---------------|-------|-------|
+| cleanup_unused_volumes | Easy | **1.000** | 5 | Qwen2.5-72B-Instruct |
+| rightsize_overprovisioned | Medium | **0.507** | 8 | Qwen2.5-72B-Instruct |
+| full_cost_optimization | Hard | **0.775** | 20 | Qwen2.5-72B-Instruct |
 
 ## Project Structure
 
