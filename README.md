@@ -155,16 +155,35 @@ python inference.py
 
 ## Architecture
 
-Agent (LLM/RL)
-     ↓
-FastAPI Server (app.py)
-     ↓
-Environment Engine (environment.py)
-     ↓
-Simulator (simulator.py)
-     ↓
-State + Reward → Returned to Agent
+Agent → FastAPI Server → Environment Engine → Simulator → State & Reward → Agent
 
++----------------------+
+|   Agent (LLM / RL)   |
++----------------------+
+           |
+           v
++----------------------+
+|  FastAPI Server      |
+|     (app.py)         |
++----------------------+
+           |
+           v
++----------------------+
+|  Environment Engine  |
+|  (environment.py)    |
++----------------------+
+           |
+           v
++----------------------+
+|     Simulator        |
+|   (simulator.py)     |
++----------------------+
+           |
+           v
++----------------------+
+|   State + Reward     |
+| (Returned to Agent)  |
++----------------------+
 
 ## Project Structure
 
