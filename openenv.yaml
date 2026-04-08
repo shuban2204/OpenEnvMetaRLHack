@@ -9,7 +9,7 @@ description: >
   constraints and application dependencies.
 type: space
 runtime: fastapi
-app: server.app:app
+app: server.app:main
 port: 7860
 tasks:
   - id: cleanup_unused_volumes
