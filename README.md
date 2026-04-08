@@ -11,48 +11,66 @@ tags:
 
 # Cloud FinOps & Infrastructure Right-Sizing Environment
 
-An **OpenEnv** environment where an AI agent acts as a **Cloud Financial Engineer**, optimizing cloud infrastructure spend by deleting unused storage, terminating idle instances, and right-sizing over-provisioned resources — all while respecting SLA constraints and application dependencies.
+An **OpenEnv** environment where an AI agent acts as a **Cloud Financial Engineer**, optimizing cloud infrastructure spend by deleting unused storage, terminating idle instances, right-sizing over-provisioned resources, migrating to spot pricing, and planning reserved instance purchases — all while respecting SLA constraints, application dependencies, and pricing models.
 
 ## Motivation
 
-Cloud cost optimization is a **$30B+ real-world problem**. Organizations routinely overspend 30–40% on cloud bills due to:
+Cloud cost optimization is a **$30B+ real-world problem**. Organizations routinely overspend 30-40% on cloud bills due to:
 - Unattached storage volumes left behind after migrations
 - Idle instances running forgotten staging/dev workloads
 - Over-provisioned instances using m5.2xlarge when m5.large would suffice
+- On-demand pricing for workloads that should be on spot or reserved instances
 
-This environment simulates a realistic AWS-like infrastructure fleet with CPU/memory utilization metrics, application dependency graphs, and pricing data — letting RL agents learn cost-optimization strategies.
+This environment simulates a realistic AWS-like infrastructure fleet with CPU/memory utilization metrics, 7-day history, application dependency graphs, instance tags (team, env, tier), pricing models, and real AWS pricing data.
 
 ## Environment Overview
 
 | Property | Value |
 |---|---|
-| **Action Space** | `terminate_instance(id)`, `delete_volume(id)`, `resize_instance(id, new_type)`, `skip`, `submit` |
-| **Observation Space** | Instance list (type, CPU/mem utilization, cost, dependencies), Volume list (size, state, attachment), spend totals, violations |
-| **Reward** | Per-step: proportional to $ saved / optimal $ savings. Penalties for SLA violations. Final graded score 0.0–1.0 |
-| **Episode Length** | 10–20 steps depending on task |
+| **Action Space** | `terminate_instance`, `delete_volume`, `resize_instance`, `convert_to_spot`, `purchase_ri`, `skip`, `submit` |
+| **Observation Space** | Instances (type, CPU/mem, cost, tags, region, dependencies, pricing_model, uptime), Volumes (size, state, dates), spot/RI pricing tables |
+| **Reward** | Per-step: proportional to $/savings normalized by optimal. Penalties for SLA violations. Final graded score 0.0-1.0 |
+| **Episode Length** | 10-20 steps depending on task |
 
-## Tasks
+## Tasks (5 tasks, easy -> expert)
 
 ### 1. Cleanup Unused Volumes (Easy)
-- **Objective**: Delete all unattached EBS volumes
+- **Objective**: Delete all unattached EBS volumes (state='available')
 - **Infrastructure**: 6 instances, 10 volumes (4 unattached)
 - **Max Steps**: 10
-- **Grading**: % of unattached volumes correctly deleted. Penalty for deleting attached volumes.
+- **Grading**: Savings ratio. Penalty for deleting attached volumes.
 - **Optimal Savings**: ~$122.75/month
 
 ### 2. Right-Size Over-Provisioned Instances (Medium)
-- **Objective**: Resize under-utilized instances to cheaper types without SLA violations
+- **Objective**: Resize under-utilized instances without SLA violations
 - **Infrastructure**: 8 instances (5 over-provisioned), 4 volumes
 - **Max Steps**: 12
-- **Grading**: Cost savings achieved vs. optimal savings. Penalty for causing SLA violations (peak CPU > 80% of new capacity).
+- **Grading**: Savings ratio with violation penalty. Peak CPU must stay < 80% of new capacity.
 - **Optimal Savings**: ~$574.28/month
 
-### 3. Full Cost Optimization (Hard)
-- **Objective**: Comprehensive fleet optimization — volumes + terminations + right-sizing + dependency awareness
-- **Infrastructure**: 15 instances, 12 volumes, app dependency graph, 7-day CPU history
+### 3. Spot Instance Migration (Medium-Hard)
+- **Objective**: Convert fault-tolerant workloads to spot pricing (60-70% savings)
+- **Infrastructure**: 10 instances with tags (stateful, tier, env), some with dependencies
+- **Max Steps**: 15
+- **Traps**: Instance with dependencies that looks like a batch worker; dev instance that's actually stateful (local DB)
+- **Grading**: 60% savings + 40% zero-violations
+- **Optimal Savings**: ~$449/month
+
+### 4. Full Cost Optimization (Hard)
+- **Objective**: Comprehensive fleet optimization across 16 instances and 12 volumes
+- **Infrastructure**: App dependency graph, 7-day CPU history per instance, multi-region deployment, enriched tags
 - **Max Steps**: 20
-- **Grading**: Composite — 50% savings ratio + 25% zero violations + 25% action completeness
+- **Traps**: Weekend-spike instance (low avg=18% but peak=72% in 7d history); critical instances with dependencies
+- **Grading**: 50% savings + 25% zero-violations + 25% action completeness
 - **Optimal Savings**: ~$1,004/month
+
+### 5. Reserved Instance Planning (Expert)
+- **Objective**: Commit to 1-year RIs for stable, long-running workloads (30-40% savings)
+- **Infrastructure**: 12 instances with varying CPU stability, uptime, deprecation status
+- **Max Steps**: 18
+- **Traps**: Deprecated instance with stable CPU (about to be decommissioned); nightly-build with wild CPU spikes; low-uptime new instances
+- **Grading**: 40% savings + 30% zero-violations + 30% precision (correct RI purchases / total RI purchases)
+- **Optimal Savings**: ~$357/month
 
 ## Observation Details
 
@@ -70,45 +88,44 @@ Each observation includes:
       "memory_avg_percent": 60.0,
       "monthly_cost": 276.48,
       "cpu_history_7d": [52, 54, 55, 58, 55, 53, 56],
-      "dependencies": ["staging-api"]
+      "dependencies": ["staging-api"],
+      "tags": {"team": "backend", "env": "prod", "tier": "critical"},
+      "region": "us-east-1",
+      "launch_date": "2025-06-15",
+      "pricing_model": "on-demand",
+      "network_io_gbps": 4.5,
+      "uptime_days": 365
     }
   ],
-  "volumes": [
-    {
-      "volume_id": "vol-202",
-      "size_gb": 200,
-      "volume_type": "gp3",
-      "state": "available",
-      "attached_instance_id": null,
-      "monthly_cost": 16.0
-    }
-  ],
-  "current_monthly_spend": 2438.87,
+  "volumes": [...],
+  "current_monthly_spend": 2540.29,
   "savings_achieved": 0.0,
   "violations": [],
-  "resize_options": {"m5.2xlarge": ["m5.xlarge", "m5.large"], ...}
+  "resize_options": {"m5.2xlarge": ["m5.xlarge", "m5.large"]},
+  "spot_pricing": {"m5.2xlarge": 82.94, "c5.xlarge": 36.72},
+  "ri_pricing": {"m5.2xlarge": 179.71, "c5.xlarge": 79.56}
 }
 ```
 
-## Action Details
+## Action Space
 
 ```json
 {"action_type": "delete_volume", "target_id": "vol-202"}
 {"action_type": "terminate_instance", "target_id": "i-202"}
 {"action_type": "resize_instance", "target_id": "i-203", "new_type": "c5.large"}
+{"action_type": "convert_to_spot", "target_id": "i-301"}
+{"action_type": "purchase_ri", "target_id": "i-401"}
 {"action_type": "skip"}
 {"action_type": "submit"}
 ```
 
 ## SLA Violation Model
 
-When right-sizing, the environment checks whether the workload would fit on the new instance type:
-
 ```
-effective_peak_cpu = peak_cpu × (old_capacity / new_capacity)
+effective_peak_cpu = peak_cpu x (old_capacity / new_capacity)
 ```
 
-If `effective_peak_cpu > 80%`, the resize causes an **SLA violation** (application may crash under peak load). Instance capacities within a family scale as:
+If `effective_peak_cpu > 80%`, the resize causes an **SLA violation**. Capacities:
 
 | Type | Capacity |
 |------|----------|
@@ -121,20 +138,22 @@ If `effective_peak_cpu > 80%`, the resize causes an **SLA violation** (applicati
 
 ## Setup
 
-### Prerequisites
-- Python 3.10+
-- Docker (for containerized deployment)
-
 ### Local Development
 ```bash
 pip install -r requirements.txt
-uvicorn server.app:app --host 0.0.0.0 --port 7860
+python -m server.app
 ```
 
 ### Docker
 ```bash
 docker build -t cloud-finops-env .
 docker run -p 7860:7860 cloud-finops-env
+```
+
+### Run Tests
+```bash
+pip install pytest
+PYTHONPATH=. pytest tests/ -v
 ```
 
 ### Run Inference
@@ -151,12 +170,14 @@ python inference.py
 |------|-----------|---------------|-------|-------|
 | cleanup_unused_volumes | Easy | **1.000** | 5 | Qwen2.5-72B-Instruct |
 | rightsize_overprovisioned | Medium | **0.507** | 8 | Qwen2.5-72B-Instruct |
+| spot_instance_migration | Medium-Hard | *pending* | - | Qwen2.5-72B-Instruct |
 | full_cost_optimization | Hard | **0.775** | 20 | Qwen2.5-72B-Instruct |
+| reserved_instance_planning | Expert | *pending* | - | Qwen2.5-72B-Instruct |
 
 ## Project Structure
 
 ```
-├── openenv.yaml                 # OpenEnv manifest
+├── openenv.yaml                 # OpenEnv manifest (5 tasks)
 ├── pyproject.toml               # Python project config
 ├── requirements.txt             # Dependencies
 ├── Dockerfile                   # Container build
@@ -166,10 +187,12 @@ python inference.py
 │   ├── __init__.py              # Package exports
 │   ├── models.py                # Action, Observation, State models
 │   └── client.py                # EnvClient subclass
-└── server/
-    ├── __init__.py
-    ├── app.py                   # FastAPI server
-    ├── environment.py           # Core environment logic
-    ├── simulator.py             # Cloud infrastructure simulation
-    └── tasks.py                 # Task definitions & graders
+├── server/
+│   ├── __init__.py
+│   ├── app.py                   # FastAPI server
+│   ├── environment.py           # Core environment logic
+│   ├── simulator.py             # Cloud infrastructure simulation
+│   └── tasks.py                 # Task definitions & graders
+└── tests/
+    └── test_environment.py      # 32 pytest tests
 ```

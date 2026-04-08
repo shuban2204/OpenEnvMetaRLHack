@@ -24,6 +24,14 @@ from typing import Any, Dict, List, Optional
 import requests
 from openai import OpenAI
 
+# Pricing reference for prompt building
+INSTANCE_PRICING = {
+    "t3.micro": 7.49, "t3.small": 15.04, "t3.medium": 30.09, "t3.large": 60.12,
+    "m5.large": 69.12, "m5.xlarge": 138.24, "m5.2xlarge": 276.48,
+    "c5.large": 61.20, "c5.xlarge": 122.40, "c5.2xlarge": 244.80,
+    "r5.large": 90.72, "r5.xlarge": 181.44,
+}
+
 # ── Configuration ───────────────────────────────────────────────────────────
 
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
@@ -37,13 +45,17 @@ MAX_TOKENS = 512
 TASK_IDS = [
     "cleanup_unused_volumes",
     "rightsize_overprovisioned",
+    "spot_instance_migration",
     "full_cost_optimization",
+    "reserved_instance_planning",
 ]
 
 TASK_MAX_STEPS = {
     "cleanup_unused_volumes": 10,
     "rightsize_overprovisioned": 12,
+    "spot_instance_migration": 15,
     "full_cost_optimization": 20,
+    "reserved_instance_planning": 18,
 }
 
 
@@ -100,11 +112,13 @@ infrastructure and take actions to reduce monthly spend while keeping
 applications running safely.
 
 You will receive observations containing:
-- instances: list of EC2 instances with CPU/memory utilization metrics
-- volumes: list of EBS volumes with attachment status
+- instances: list of EC2 instances with CPU/memory utilization, tags, region, pricing_model
+- volumes: list of EBS volumes with attachment status and dates
 - current_monthly_spend, savings_achieved, violations
 - task_description: what you should do
 - resize_options: valid downgrade paths for each instance type
+- spot_pricing: monthly cost if converted to spot
+- ri_pricing: monthly cost if 1-year reserved instance purchased
 - action_history: what you've already done
 
 You must respond with EXACTLY ONE JSON action per turn:
@@ -112,6 +126,8 @@ You must respond with EXACTLY ONE JSON action per turn:
 {"action_type": "delete_volume", "target_id": "vol-XXX"}
 {"action_type": "terminate_instance", "target_id": "i-XXX"}
 {"action_type": "resize_instance", "target_id": "i-XXX", "new_type": "m5.large"}
+{"action_type": "convert_to_spot", "target_id": "i-XXX"}
+{"action_type": "purchase_ri", "target_id": "i-XXX"}
 {"action_type": "skip"}
 {"action_type": "submit"}
 
@@ -119,8 +135,12 @@ RULES:
 - Only delete volumes with state="available" (unattached).
 - Only terminate instances with very low CPU (<5%) AND empty dependencies list.
 - Only resize to types listed in resize_options for that instance type.
-- After resizing, the effective peak CPU = peak_cpu * (old_capacity / new_capacity)
+- After resizing, effective peak CPU = peak_cpu * (old_capacity / new_capacity)
   must stay BELOW 80%. Capacity roughly halves with each downgrade step.
+- convert_to_spot: ONLY for stateless (tag stateful!="true"), non-critical
+  (tag tier!="critical"), no-dependency instances. Spot = 60-70% savings.
+- purchase_ri: ONLY for long-running (uptime>=180d), stable CPU (low 7d variance),
+  production instances NOT tagged deprecated/migrating. RI = 30-40% savings.
 - Use "submit" when you have completed all optimizations.
 - Respond with ONLY the JSON object — no explanation, no markdown.
 """)
@@ -159,6 +179,15 @@ def build_user_prompt(obs: Dict[str, Any], step: int) -> str:
         cpu_hist = inst.get("cpu_history_7d", [])
         if cpu_hist:
             line += f" | 7d_cpu={cpu_hist}"
+        tags = inst.get("tags", {})
+        if tags:
+            line += f" | tags={tags}"
+        pricing = inst.get("pricing_model", "")
+        if pricing and pricing != "on-demand":
+            line += f" | pricing={pricing}"
+        uptime = inst.get("uptime_days", 0)
+        if uptime:
+            line += f" | uptime={uptime}d"
         parts.append(line)
 
     # Volumes
@@ -178,6 +207,20 @@ def build_user_prompt(obs: Dict[str, Any], step: int) -> str:
         parts.append("\n--- RESIZE OPTIONS ---")
         for itype, targets in resize_opts.items():
             parts.append(f"  {itype} -> {targets}")
+
+    # Spot pricing
+    spot_prices = obs_data.get("spot_pricing", {})
+    if spot_prices:
+        parts.append("\n--- SPOT PRICING (monthly) ---")
+        for itype, price in spot_prices.items():
+            parts.append(f"  {itype}: ${price:.2f}/mo (on-demand: ${INSTANCE_PRICING.get(itype, 0):.2f})")
+
+    # RI pricing
+    ri_prices = obs_data.get("ri_pricing", {})
+    if ri_prices:
+        parts.append("\n--- RESERVED INSTANCE PRICING (1yr, monthly) ---")
+        for itype, price in ri_prices.items():
+            parts.append(f"  {itype}: ${price:.2f}/mo (on-demand: ${INSTANCE_PRICING.get(itype, 0):.2f})")
 
     parts.append("\nRespond with ONE JSON action:")
     return "\n".join(parts)

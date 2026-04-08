@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional
 from cloud_finops_env.models import (
     DOWNGRADE_PATHS,
     INSTANCE_PRICING,
+    RI_PRICING,
+    SPOT_PRICING,
     CloudFinOpsAction,
     CloudFinOpsObservation,
     CloudFinOpsState,
@@ -175,6 +177,31 @@ class CloudFinOpsEnvironment:
                     inst.monthly_cost = INSTANCE_PRICING[new_type]
                     self._savings += round(old_cost - inst.monthly_cost, 2)
 
+        elif a_type == "convert_to_spot":
+            inst = next(
+                (i for i in self._current_state.instances if i.instance_id == target),
+                None,
+            )
+            if inst and inst.state == "running" and inst.pricing_model != "spot":
+                if not inst.dependencies:
+                    spot_cost = SPOT_PRICING.get(inst.instance_type, inst.monthly_cost)
+                    old_cost = inst.monthly_cost
+                    inst.pricing_model = "spot"
+                    inst.monthly_cost = spot_cost
+                    self._savings += round(old_cost - spot_cost, 2)
+
+        elif a_type == "purchase_ri":
+            inst = next(
+                (i for i in self._current_state.instances if i.instance_id == target),
+                None,
+            )
+            if inst and inst.state == "running" and inst.pricing_model != "reserved":
+                ri_cost = RI_PRICING.get(inst.instance_type, inst.monthly_cost)
+                old_cost = inst.monthly_cost
+                inst.pricing_model = "reserved"
+                inst.monthly_cost = ri_cost
+                self._savings += round(old_cost - ri_cost, 2)
+
         # ── check episode end ───────────────────────────────────────────
         if self._step_count >= self._task_def.max_steps:
             self._done = True
@@ -241,6 +268,13 @@ class CloudFinOpsEnvironment:
             if inst.state == "running" and inst.instance_type in DOWNGRADE_PATHS:
                 resize_opts[inst.instance_type] = DOWNGRADE_PATHS[inst.instance_type]
 
+        # Build spot/RI pricing for active instance types
+        active_types = set(
+            i.instance_type for i in cs.instances if i.state == "running"
+        )
+        spot_prices = {t: SPOT_PRICING[t] for t in active_types if t in SPOT_PRICING}
+        ri_prices = {t: RI_PRICING[t] for t in active_types if t in RI_PRICING}
+
         return CloudFinOpsObservation(
             done=self._done,
             reward=reward,
@@ -254,6 +288,8 @@ class CloudFinOpsEnvironment:
             step_number=self._step_count,
             max_steps=self._task_def.max_steps,
             resize_options=resize_opts,
+            spot_pricing=spot_prices,
+            ri_pricing=ri_prices,
             action_history=list(self._action_history),
             last_action_error=self._last_action_error,
         )

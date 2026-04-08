@@ -1,12 +1,13 @@
 spec_version: 1
 name: cloud_finops_env
-version: 1.0.0
+version: 2.0.0
 description: >
   Cloud FinOps & Infrastructure Right-Sizing Environment.
   An AI agent acts as a Cloud Financial Engineer, optimizing cloud spend
-  by deleting unused storage volumes, terminating idle instances, and
-  right-sizing over-provisioned resources — all while respecting SLA
-  constraints and application dependencies.
+  by deleting unused storage volumes, terminating idle instances,
+  right-sizing over-provisioned resources, migrating to spot instances,
+  and planning reserved instance purchases — all while respecting SLA
+  constraints, application dependencies, and pricing models.
 type: space
 runtime: fastapi
 app: server.app:main
@@ -20,7 +21,15 @@ tasks:
     name: "Right-Size Over-Provisioned Instances"
     description: "Resize under-utilized EC2 instances to smaller types without causing SLA violations."
     difficulty: medium
+  - id: spot_instance_migration
+    name: "Spot Instance Migration"
+    description: "Identify and convert fault-tolerant workloads to spot pricing while protecting stateful and critical services."
+    difficulty: medium-hard
   - id: full_cost_optimization
     name: "Full Cost Optimization"
-    description: "Comprehensive fleet optimization — delete volumes, terminate idle instances, right-size resources, respect app dependencies."
+    description: "Comprehensive fleet optimization — delete volumes, terminate idle instances, right-size resources, respect app dependencies and 7-day CPU history."
     difficulty: hard
+  - id: reserved_instance_planning
+    name: "Reserved Instance Planning"
+    description: "Analyze long-running workloads and commit to 1-year Reserved Instances for stable, predictable services while avoiding deprecated or volatile instances."
+    difficulty: expert
