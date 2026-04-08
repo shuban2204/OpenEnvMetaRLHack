@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "cloud-finops-env"
+version = "1.0.0"
+description = "Cloud FinOps & Infrastructure Right-Sizing OpenEnv Environment"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "openenv-core>=0.1.0",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.20.0",
+    "pydantic>=2.0.0",
+    "requests>=2.28.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "httpx>=0.24.0"]
+
+[tool.setuptools.packages.find]
+include = ["cloud_finops_env*", "server*"]
+
+[project.scripts]
+server = "server.app:app"

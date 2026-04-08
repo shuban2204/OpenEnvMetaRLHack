@@ -1,0 +1,26 @@
+spec_version: 1
+name: cloud_finops_env
+version: 1.0.0
+description: >
+  Cloud FinOps & Infrastructure Right-Sizing Environment.
+  An AI agent acts as a Cloud Financial Engineer, optimizing cloud spend
+  by deleting unused storage volumes, terminating idle instances, and
+  right-sizing over-provisioned resources — all while respecting SLA
+  constraints and application dependencies.
+type: space
+runtime: fastapi
+app: server.app:app
+port: 7860
+tasks:
+  - id: cleanup_unused_volumes
+    name: "Cleanup Unused Volumes"
+    description: "Delete all unattached EBS storage volumes to reduce monthly spend."
+    difficulty: easy
+  - id: rightsize_overprovisioned
+    name: "Right-Size Over-Provisioned Instances"
+    description: "Resize under-utilized EC2 instances to smaller types without causing SLA violations."
+    difficulty: medium
+  - id: full_cost_optimization
+    name: "Full Cost Optimization"
+    description: "Comprehensive fleet optimization — delete volumes, terminate idle instances, right-size resources, respect app dependencies."
+    difficulty: hard
