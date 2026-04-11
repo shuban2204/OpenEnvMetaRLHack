@@ -121,6 +121,7 @@ class CloudFinOpsEnvironment:
                 self._violations,
                 self._initial_state,
                 self._current_state,
+                steps_taken=self._step_count,
             )
             return self._build_observation(reward=final_score)
 
@@ -211,6 +212,7 @@ class CloudFinOpsEnvironment:
                 self._violations,
                 self._initial_state,
                 self._current_state,
+                steps_taken=self._step_count,
             )
             reward = final_score
 
@@ -244,7 +246,7 @@ class CloudFinOpsEnvironment:
                 "cloud spend by deleting unused volumes, terminating idle "
                 "instances, and right-sizing over-provisioned resources."
             ),
-            "version": "1.0.0",
+            "version": "2.1.0",
             "tasks": list(TASKS.keys()),
         }
 

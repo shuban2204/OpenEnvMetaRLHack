@@ -482,14 +482,149 @@ def _build_ri_planning_infra() -> CloudState:
     return CloudState(instances, volumes)
 
 
+# ── Task 6: Expert+ — Comprehensive Fleet Review ────────────────────────────
+
+def _build_comprehensive_fleet_infra() -> CloudState:
+    """
+    18 instances + 10 volumes requiring ALL 5 action types.
+    Tests the agent's ability to orchestrate volume cleanup, idle termination,
+    right-sizing, spot migration, and RI purchases simultaneously — while
+    navigating 5 distinct traps.
+
+    Optimal actions: 3 deletes + 3 terminates + 3 resizes + 3 spots + 3 RIs = 15
+    Optimal savings: ~$1,152/month
+    """
+    instances = [
+        # ── TO TERMINATE (idle, no deps, avg CPU < 5%) ──────────────────
+        Instance("i-501", "m5.xlarge", "running", "old-staging-api", 2, 5, 4, 138.24,
+                 cpu_history_7d=[2, 3, 2, 1, 2, 3, 2],
+                 tags={"team": "backend", "env": "staging", "stateful": "false"},
+                 uptime_days=200, optimal_action="terminate"),
+        Instance("i-502", "c5.large", "running", "unused-worker", 1, 3, 2, 61.20,
+                 cpu_history_7d=[1, 1, 2, 1, 0, 1, 1],
+                 tags={"team": "data", "env": "dev", "stateful": "false"},
+                 uptime_days=90, optimal_action="terminate"),
+        Instance("i-503", "t3.large", "running", "legacy-test-runner", 3, 7, 5, 60.12,
+                 cpu_history_7d=[3, 4, 3, 2, 3, 4, 3],
+                 tags={"team": "qa", "env": "staging", "stateful": "false"},
+                 uptime_days=150, optimal_action="terminate"),
+
+        # ── TO RESIZE (over-provisioned, safe downgrades) ───────────────
+        Instance("i-504", "m5.2xlarge", "running", "backend-api", 10, 18, 14, 276.48,
+                 cpu_history_7d=[9, 10, 12, 11, 10, 9, 11],
+                 tags={"team": "backend", "env": "prod", "stateful": "false"},
+                 uptime_days=180, optimal_action="resize", optimal_type="m5.large"),
+        # peak=18%, cap 4→1, effective=72% < 80% ✓
+        Instance("i-505", "c5.2xlarge", "running", "data-pipeline", 8, 14, 11, 244.80,
+                 cpu_history_7d=[7, 8, 9, 8, 7, 6, 9],
+                 tags={"team": "data", "env": "prod", "stateful": "false"},
+                 uptime_days=250, optimal_action="resize", optimal_type="c5.large"),
+        # peak=14%, cap 4→1, effective=56% < 80% ✓
+        Instance("i-506", "m5.xlarge", "running", "internal-tools", 12, 20, 16, 138.24,
+                 cpu_history_7d=[11, 12, 13, 12, 11, 10, 13],
+                 tags={"team": "devops", "env": "prod", "stateful": "false"},
+                 uptime_days=200, optimal_action="resize", optimal_type="m5.large"),
+        # peak=20%, cap 2→1, effective=40% < 80% ✓
+
+        # ── TO CONVERT TO SPOT (stateless, non-critical, no deps) ──────
+        Instance("i-507", "c5.xlarge", "running", "batch-processor", 40, 65, 35, 122.40,
+                 tags={"team": "data", "env": "prod", "stateful": "false"},
+                 spot_eligible=True, uptime_days=200, network_io_gbps=1.5,
+                 optimal_action="convert_to_spot"),
+        Instance("i-508", "m5.large", "running", "ci-builder", 20, 40, 18, 69.12,
+                 tags={"team": "devops", "env": "staging", "stateful": "false"},
+                 spot_eligible=True, uptime_days=120, network_io_gbps=0.5,
+                 optimal_action="convert_to_spot"),
+        Instance("i-509", "t3.large", "running", "load-tester", 15, 30, 12, 60.12,
+                 tags={"team": "qa", "env": "staging", "stateful": "false"},
+                 spot_eligible=True, uptime_days=60, network_io_gbps=0.2,
+                 optimal_action="convert_to_spot"),
+
+        # ── TO PURCHASE RI (stable, long-running, production) ──────────
+        Instance("i-510", "m5.2xlarge", "running", "core-service", 55, 72, 50, 276.48,
+                 cpu_history_7d=[54, 55, 56, 55, 54, 53, 56],
+                 dependencies=["api-gateway"],
+                 tags={"team": "backend", "env": "prod", "tier": "critical"},
+                 ri_eligible=True, uptime_days=500, network_io_gbps=4.0,
+                 optimal_action="purchase_ri"),
+        Instance("i-511", "c5.xlarge", "running", "api-gateway", 48, 62, 42, 122.40,
+                 cpu_history_7d=[47, 48, 49, 48, 47, 46, 49],
+                 tags={"team": "backend", "env": "prod"},
+                 ri_eligible=True, uptime_days=400, network_io_gbps=2.5,
+                 optimal_action="purchase_ri"),
+        Instance("i-512", "r5.xlarge", "running", "prod-cache", 60, 75, 68, 181.44,
+                 cpu_history_7d=[59, 60, 61, 60, 59, 58, 61],
+                 tags={"team": "backend", "env": "prod"},
+                 ri_eligible=True, uptime_days=600, network_io_gbps=3.5,
+                 optimal_action="purchase_ri"),
+
+        # ── TO KEEP (critical, well-utilized, or correctly configured) ─
+        Instance("i-513", "m5.xlarge", "running", "prod-db", 65, 90, 75, 138.24,
+                 cpu_history_7d=[63, 65, 68, 66, 64, 62, 67],
+                 dependencies=["core-service", "api-gateway", "data-pipeline"],
+                 tags={"team": "backend", "env": "prod", "tier": "critical",
+                       "stateful": "true"},
+                 uptime_days=700, network_io_gbps=5.0),
+        Instance("i-514", "r5.large", "running", "session-store", 55, 78, 82, 90.72,
+                 cpu_history_7d=[53, 55, 57, 56, 54, 52, 56],
+                 tags={"team": "backend", "env": "prod", "stateful": "true"},
+                 uptime_days=300, network_io_gbps=2.0),
+        Instance("i-515", "c5.large", "running", "monitoring", 45, 68, 40, 61.20,
+                 cpu_history_7d=[43, 45, 47, 46, 44, 42, 46],
+                 dependencies=["prod-db", "core-service"],
+                 tags={"team": "devops", "env": "prod", "tier": "critical"},
+                 uptime_days=500),
+
+        # ── TRAPS ──────────────────────────────────────────────────────
+        # TRAP 1: Looks idle but has critical dependencies → DON'T terminate
+        Instance("i-516", "m5.xlarge", "running", "config-service", 3, 6, 4, 138.24,
+                 cpu_history_7d=[3, 3, 4, 3, 2, 3, 3],
+                 dependencies=["core-service", "api-gateway", "batch-processor"],
+                 tags={"team": "platform", "env": "prod", "tier": "critical"},
+                 uptime_days=400),
+        # TRAP 2: Long-running + stable but DEPRECATED → DON'T purchase RI
+        Instance("i-517", "m5.xlarge", "running", "legacy-billing", 38, 50, 35, 138.24,
+                 cpu_history_7d=[37, 38, 39, 38, 37, 36, 39],
+                 tags={"team": "billing", "env": "prod",
+                       "status": "deprecated", "decommission_date": "2026-08-01"},
+                 uptime_days=800),
+        # TRAP 3: Low avg CPU but massive weekend spikes → DON'T resize
+        Instance("i-518", "m5.xlarge", "running", "weekend-analytics", 14, 70, 18, 138.24,
+                 cpu_history_7d=[5, 6, 4, 5, 7, 65, 70],
+                 tags={"team": "analytics", "env": "prod", "stateful": "false"},
+                 uptime_days=100),
+    ]
+
+    volumes = [
+        # ── TO DELETE (unattached) ─────────────────────────────────────
+        Volume("vol-501", 200, "gp3", "available", None, optimal_action="delete",
+               created_date="2025-03-10", last_accessed_date="2025-07-15"),
+        Volume("vol-502", 300, "gp2", "available", None, optimal_action="delete",
+               created_date="2025-01-20", last_accessed_date="2025-05-01"),
+        Volume("vol-503", 100, "gp3", "available", None, optimal_action="delete",
+               created_date="2025-06-05", last_accessed_date="2025-10-30"),
+        # ── TO KEEP (attached) ─────────────────────────────────────────
+        Volume("vol-504", 500, "gp3", "in-use", "i-510"),
+        Volume("vol-505", 1000, "io1", "in-use", "i-513"),
+        Volume("vol-506", 200, "gp3", "in-use", "i-512"),
+        Volume("vol-507", 300, "gp3", "in-use", "i-514"),
+        Volume("vol-508", 100, "gp3", "in-use", "i-515"),
+        Volume("vol-509", 500, "gp3", "in-use", "i-504"),
+        Volume("vol-510", 200, "gp3", "in-use", "i-507"),
+    ]
+
+    return CloudState(instances, volumes)
+
+
 # ── Public API ──────────────────────────────────────────────────────────────
 
 TASK_BUILDERS = {
-    "cleanup_unused_volumes":    _build_easy_infra,
-    "rightsize_overprovisioned": _build_medium_infra,
-    "full_cost_optimization":    _build_hard_infra,
-    "spot_instance_migration":   _build_spot_migration_infra,
+    "cleanup_unused_volumes":     _build_easy_infra,
+    "rightsize_overprovisioned":  _build_medium_infra,
+    "full_cost_optimization":     _build_hard_infra,
+    "spot_instance_migration":    _build_spot_migration_infra,
     "reserved_instance_planning": _build_ri_planning_infra,
+    "comprehensive_fleet_review": _build_comprehensive_fleet_infra,
 }
 
 

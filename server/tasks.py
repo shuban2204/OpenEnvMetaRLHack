@@ -135,9 +135,45 @@ TASKS: Dict[str, TaskDef] = {
             "Use 'submit' when done."
         ),
     ),
+    "comprehensive_fleet_review": TaskDef(
+        task_id="comprehensive_fleet_review",
+        name="Comprehensive Fleet Review",
+        difficulty="expert+",
+        max_steps=25,
+        description=(
+            "You are a Cloud Financial Engineer conducting a full fleet review "
+            "using ALL optimization strategies simultaneously. This fleet has "
+            "18 instances and 10 volumes requiring 5 different action types.\n\n"
+            "OPTIMIZATION PRIORITIES (work in this order):\n"
+            "1) DELETE unattached volumes (state='available')\n"
+            "2) TERMINATE idle instances (avg CPU < 5%, NO dependencies)\n"
+            "3) RESIZE over-provisioned instances to smallest safe type\n"
+            "   (effective peak CPU must stay < 80% after resize)\n"
+            "4) CONVERT eligible stateless workloads to SPOT pricing\n"
+            "   (stateful='false', tier!='critical', no dependencies)\n"
+            "5) PURCHASE RI for stable, long-running production instances\n"
+            "   (uptime >= 180d, low CPU variance, not deprecated)\n\n"
+            "WARNINGS:\n"
+            "- Some idle-looking instances have critical dependencies\n"
+            "- Some stable instances are tagged for decommission\n"
+            "- Some low-average instances have weekend CPU spikes\n"
+            "- Check tags, dependencies, and 7-day CPU history carefully\n"
+            "Use 'submit' when all optimizations are complete."
+        ),
+    ),
 }
 
 TASK_IDS: List[str] = list(TASKS.keys())
+
+# Minimum optimal step counts per task (actions + submit)
+OPTIMAL_STEPS: Dict[str, int] = {
+    "cleanup_unused_volumes": 5,       # 4 deletes + submit
+    "rightsize_overprovisioned": 6,    # 5 resizes + submit
+    "spot_instance_migration": 6,      # 5 spot conversions + submit
+    "full_cost_optimization": 14,      # 5 deletes + 4 terminates + 4 resizes + submit
+    "reserved_instance_planning": 7,   # 6 RI purchases + submit
+    "comprehensive_fleet_review": 16,  # 3+3+3+3+3 actions + submit
+}
 
 
 # ── Grading helpers ─────────────────────────────────────────────────────────
@@ -360,12 +396,105 @@ def _clamp_score(score: float) -> float:
     return round(max(0.001, min(score, 0.999)), 4)
 
 
+def _compute_completeness(
+    initial_state: CloudState,
+    current_state: CloudState,
+) -> float:
+    """Fraction of optimal actions that were correctly completed."""
+    total_optimal = 0
+    completed_optimal = 0
+
+    for inst in initial_state.instances:
+        if inst.optimal_action == "keep":
+            continue
+        total_optimal += 1
+        cur = next(
+            (c for c in current_state.instances if c.instance_id == inst.instance_id),
+            None,
+        )
+        if cur is None:
+            continue
+        if inst.optimal_action == "terminate" and cur.state == "terminated":
+            completed_optimal += 1
+        elif inst.optimal_action == "resize" and cur.instance_type == inst.optimal_type:
+            completed_optimal += 1
+        elif inst.optimal_action == "convert_to_spot" and cur.pricing_model == "spot":
+            completed_optimal += 1
+        elif inst.optimal_action == "purchase_ri" and cur.pricing_model == "reserved":
+            completed_optimal += 1
+
+    for vol in initial_state.volumes:
+        if vol.optimal_action == "delete":
+            total_optimal += 1
+            cur = next(
+                (c for c in current_state.volumes if c.volume_id == vol.volume_id),
+                None,
+            )
+            if cur and cur.state == "deleted":
+                completed_optimal += 1
+
+    return completed_optimal / total_optimal if total_optimal > 0 else 1.0
+
+
+def _compute_precision(
+    initial_state: CloudState,
+    current_state: CloudState,
+) -> float:
+    """Fraction of agent's actions that matched optimal recommendations."""
+    total_actions = 0
+    correct_actions = 0
+
+    for inst in initial_state.instances:
+        cur = next(
+            (c for c in current_state.instances if c.instance_id == inst.instance_id),
+            None,
+        )
+        if cur is None:
+            continue
+
+        # Check if any action was taken on this instance
+        action_taken = False
+        if cur.state == "terminated":
+            action_taken = True
+            total_actions += 1
+            if inst.optimal_action == "terminate":
+                correct_actions += 1
+        elif cur.pricing_model == "spot" and inst.pricing_model != "spot":
+            action_taken = True
+            total_actions += 1
+            if inst.optimal_action == "convert_to_spot":
+                correct_actions += 1
+        elif cur.pricing_model == "reserved" and inst.pricing_model != "reserved":
+            action_taken = True
+            total_actions += 1
+            if inst.optimal_action == "purchase_ri":
+                correct_actions += 1
+        elif cur.instance_type != inst.instance_type:
+            action_taken = True
+            total_actions += 1
+            if inst.optimal_action == "resize" and cur.instance_type == inst.optimal_type:
+                correct_actions += 1
+
+    for vol in initial_state.volumes:
+        cur = next(
+            (c for c in current_state.volumes if c.volume_id == vol.volume_id),
+            None,
+        )
+        if cur and cur.state == "deleted" and vol.state != "deleted":
+            total_actions += 1
+            if vol.optimal_action == "delete":
+                correct_actions += 1
+
+    return correct_actions / total_actions if total_actions > 0 else 1.0
+
+
 def grade_episode(
     task_id: str,
     savings_achieved: float,
     violations: List[str],
     initial_state: CloudState,
     current_state: CloudState,
+    steps_taken: int = 0,
 ) -> float:
     """Compute a final score in (0.0, 1.0) — strictly between, never exact 0 or 1."""
     optimal = _compute_optimal_savings(task_id, initial_state)
@@ -389,25 +518,7 @@ def grade_episode(
 
     if task_id == "full_cost_optimization":
         violation_score = 1.0 if len(violations) == 0 else max(0.0, 1.0 - 0.15 * len(violations))
-        total_optimal = 0
-        completed_optimal = 0
-        for inst in initial_state.instances:
-            if inst.optimal_action != "keep":
-                total_optimal += 1
-                cur = next((c for c in current_state.instances if c.instance_id == inst.instance_id), None)
-                if cur is None:
-                    continue
-                if inst.optimal_action == "terminate" and cur.state == "terminated":
-                    completed_optimal += 1
-                elif inst.optimal_action == "resize" and cur.instance_type == inst.optimal_type:
-                    completed_optimal += 1
-        for vol in initial_state.volumes:
-            if vol.optimal_action == "delete":
-                total_optimal += 1
-                cur = next((c for c in current_state.volumes if c.volume_id == vol.volume_id), None)
-                if cur and cur.state == "deleted":
-                    completed_optimal += 1
-        completeness = completed_optimal / total_optimal if total_optimal > 0 else 1.0
+        completeness = _compute_completeness(initial_state, current_state)
         score = 0.50 * savings_ratio + 0.25 * violation_score + 0.25 * completeness
         return _clamp_score(score)
 
@@ -423,6 +534,31 @@ def grade_episode(
                     correct_ri_actions += 1
         precision = correct_ri_actions / total_ri_actions if total_ri_actions > 0 else 1.0
         score = 0.40 * savings_ratio + 0.30 * violation_score + 0.30 * precision
+        return _clamp_score(score)
+
+    if task_id == "comprehensive_fleet_review":
+        # The ultimate scoring: savings + safety + completeness + precision + efficiency
+        violation_score = 1.0 if len(violations) == 0 else max(0.0, 1.0 - 0.12 * len(violations))
+        completeness = _compute_completeness(initial_state, current_state)
+        precision = _compute_precision(initial_state, current_state)
+
+        # Step efficiency: optimal is 16 steps (15 actions + submit), max is 25
+        optimal_steps = 16
+        max_steps = 25
+        if steps_taken > 0 and steps_taken <= optimal_steps:
+            efficiency = 1.0
+        elif steps_taken > 0:
+            efficiency = max(0.0, 1.0 - (steps_taken - optimal_steps) / (max_steps - optimal_steps))
+        else:
+            efficiency = 0.0
+
+        score = (
+            0.30 * savings_ratio
+            + 0.20 * violation_score
+            + 0.25 * completeness
+            + 0.15 * precision
+            + 0.10 * efficiency
+        )
         return _clamp_score(score)
 
     return _clamp_score(savings_ratio)

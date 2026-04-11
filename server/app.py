@@ -24,7 +24,7 @@ from server.environment import CloudFinOpsEnvironment
 app = FastAPI(
     title="Cloud FinOps Environment",
     description="OpenEnv environment for cloud infrastructure cost optimization",
-    version="1.0.0",
+    version="2.0.0",
 )
 
 _env = CloudFinOpsEnvironment()

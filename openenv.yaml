@@ -1,6 +1,6 @@
 spec_version: 1
 name: cloud_finops_env
-version: 2.0.0
+version: 2.1.0
 description: >
   Cloud FinOps & Infrastructure Right-Sizing Environment.
   An AI agent acts as a Cloud Financial Engineer, optimizing cloud spend
@@ -8,6 +8,9 @@ description: >
   right-sizing over-provisioned resources, migrating to spot instances,
   and planning reserved instance purchases — all while respecting SLA
   constraints, application dependencies, and pricing models.
+  Features 6 graded tasks (easy → expert+), adversarial traps,
+  multi-dimensional scoring (savings, safety, completeness, precision,
+  efficiency), and a pre-computed analysis engine for the baseline agent.
 type: space
 runtime: fastapi
 app: server.app:main
@@ -33,3 +36,7 @@ tasks:
     name: "Reserved Instance Planning"
     description: "Analyze long-running workloads and commit to 1-year Reserved Instances for stable, predictable services while avoiding deprecated or volatile instances."
     difficulty: expert
+  - id: comprehensive_fleet_review
+    name: "Comprehensive Fleet Review"
+    description: "Full fleet review requiring ALL 5 optimization strategies simultaneously — volume cleanup, idle termination, right-sizing, spot migration, and RI purchases — across 18 instances with 5 adversarial traps. Graded on savings, safety, completeness, precision, and step efficiency."
+    difficulty: expert+

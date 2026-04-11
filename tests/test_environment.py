@@ -28,7 +28,7 @@ class TestReset:
         task_ids = [
             "cleanup_unused_volumes", "rightsize_overprovisioned",
             "spot_instance_migration", "full_cost_optimization",
-            "reserved_instance_planning",
+            "reserved_instance_planning", "comprehensive_fleet_review",
         ]
         for task_id in task_ids:
             obs = env.reset(task_id=task_id)
@@ -54,7 +54,7 @@ class TestGraderScoreRange:
     @pytest.mark.parametrize("task_id", [
         "cleanup_unused_volumes", "rightsize_overprovisioned",
         "spot_instance_migration", "full_cost_optimization",
-        "reserved_instance_planning",
+        "reserved_instance_planning", "comprehensive_fleet_review",
     ])
     def test_no_action_score_in_range(self, env, task_id):
         env.reset(task_id=task_id)
@@ -64,7 +64,7 @@ class TestGraderScoreRange:
     @pytest.mark.parametrize("task_id", [
         "cleanup_unused_volumes", "rightsize_overprovisioned",
         "spot_instance_migration", "full_cost_optimization",
-        "reserved_instance_planning",
+        "reserved_instance_planning", "comprehensive_fleet_review",
     ])
     def test_score_deterministic(self, env, task_id):
         env.reset(task_id=task_id)
@@ -198,6 +198,131 @@ class TestRITask:
         assert "uptime" in obs.last_action_error.lower()
 
 
+# ── Comprehensive fleet review tests ──────────────────────────────────────
+
+class TestComprehensiveFleetReview:
+    def test_reset_produces_correct_counts(self, env):
+        obs = env.reset(task_id="comprehensive_fleet_review")
+        assert len(obs.instances) == 18
+        assert len(obs.volumes) == 10
+        assert obs.task_id == "comprehensive_fleet_review"
+        assert obs.max_steps == 25
+
+    def test_perfect_score(self, env):
+        """Execute all 15 optimal actions and submit — should score ~0.99+."""
+        env.reset(task_id="comprehensive_fleet_review")
+        # Phase 1: Delete unattached volumes
+        for vid in ["vol-501", "vol-502", "vol-503"]:
+            env.step(CloudFinOpsAction(action_type="delete_volume", target_id=vid))
+        # Phase 2: Terminate idle instances
+        for iid in ["i-501", "i-502", "i-503"]:
+            env.step(CloudFinOpsAction(action_type="terminate_instance", target_id=iid))
+        # Phase 3: Resize over-provisioned
+        for iid, nt in [("i-504", "m5.large"), ("i-505", "c5.large"), ("i-506", "m5.large")]:
+            env.step(CloudFinOpsAction(action_type="resize_instance", target_id=iid, new_type=nt))
+        # Phase 4: Convert to spot
+        for iid in ["i-507", "i-508", "i-509"]:
+            env.step(CloudFinOpsAction(action_type="convert_to_spot", target_id=iid))
+        # Phase 5: Purchase RIs
+        for iid in ["i-510", "i-511", "i-512"]:
+            env.step(CloudFinOpsAction(action_type="purchase_ri", target_id=iid))
+        # Submit
+        obs = env.step(CloudFinOpsAction(action_type="submit"))
+        assert obs.reward >= 0.95
+
+    def test_trap_idle_with_dependencies(self, env):
+        """i-516 looks idle but has critical dependencies — termination should be blocked."""
+        env.reset(task_id="comprehensive_fleet_review")
+        obs = env.step(CloudFinOpsAction(action_type="terminate_instance", target_id="i-516"))
+        assert obs.reward < 0
+        assert any("i-516" in v for v in obs.violations)
+
+    def test_trap_deprecated_ri(self, env):
+        """i-517 is stable but deprecated — RI purchase is a wasted commitment."""
+        env.reset(task_id="comprehensive_fleet_review")
+        obs = env.step(CloudFinOpsAction(action_type="purchase_ri", target_id="i-517"))
+        assert obs.reward < 0
+        assert "decommission" in obs.last_action_error.lower()
+
+    def test_trap_weekend_spike_resize(self, env):
+        """i-518 has low avg but high weekend peaks — resize causes SLA violation."""
+        env.reset(task_id="comprehensive_fleet_review")
+        obs = env.step(CloudFinOpsAction(
+            action_type="resize_instance", target_id="i-518", new_type="m5.large"))
+        assert obs.reward < 0
+        assert "VIOLATION" in obs.last_action_error
+
+    def test_stateful_instance_not_spot(self, env):
+        """i-514 is stateful — spot conversion should be penalized."""
+        env.reset(task_id="comprehensive_fleet_review")
+        obs = env.step(CloudFinOpsAction(action_type="convert_to_spot", target_id="i-514"))
+        assert obs.reward < 0
+        assert "stateful" in obs.last_action_error.lower()
+
+    def test_critical_instance_not_spot(self, env):
+        """i-513 is critical with dependencies — spot conversion should fail."""
+        env.reset(task_id="comprehensive_fleet_review")
+        obs = env.step(CloudFinOpsAction(action_type="convert_to_spot", target_id="i-513"))
+        assert obs.reward < 0
+
+    def test_no_action_score_low(self, env):
+        """Submitting immediately should give a low score (no savings, no completeness)."""
+        env.reset(task_id="comprehensive_fleet_review")
+        obs = env.step(CloudFinOpsAction(action_type="submit"))
+        # Gets partial credit from zero-violations (0.20) + precision (0.15) + efficiency
+        assert obs.reward < 0.50
+
+    def test_partial_actions_partial_score(self, env):
+        """Doing only volume deletes should give partial credit but not near-perfect."""
+        env.reset(task_id="comprehensive_fleet_review")
+        for vid in ["vol-501", "vol-502", "vol-503"]:
+            env.step(CloudFinOpsAction(action_type="delete_volume", target_id=vid))
+        obs = env.step(CloudFinOpsAction(action_type="submit"))
+        assert 0.05 < obs.reward < 0.70
+
+    def test_step_efficiency_matters(self, env):
+        """Optimal actions in fewer steps should score higher than with wasted steps."""
+        # Run with optimal steps
+        env.reset(task_id="comprehensive_fleet_review")
+        for vid in ["vol-501", "vol-502", "vol-503"]:
+            env.step(CloudFinOpsAction(action_type="delete_volume", target_id=vid))
+        for iid in ["i-501", "i-502", "i-503"]:
+            env.step(CloudFinOpsAction(action_type="terminate_instance", target_id=iid))
+        for iid, nt in [("i-504", "m5.large"), ("i-505", "c5.large"), ("i-506", "m5.large")]:
+            env.step(CloudFinOpsAction(action_type="resize_instance", target_id=iid, new_type=nt))
+        for iid in ["i-507", "i-508", "i-509"]:
+            env.step(CloudFinOpsAction(action_type="convert_to_spot", target_id=iid))
+        for iid in ["i-510", "i-511", "i-512"]:
+            env.step(CloudFinOpsAction(action_type="purchase_ri", target_id=iid))
+        obs_fast = env.step(CloudFinOpsAction(action_type="submit"))
+
+        # Run with wasted skip steps
+        env.reset(task_id="comprehensive_fleet_review")
+        for _ in range(5):
+            env.step(CloudFinOpsAction(action_type="skip"))
+        for vid in ["vol-501", "vol-502", "vol-503"]:
+            env.step(CloudFinOpsAction(action_type="delete_volume", target_id=vid))
+        for iid in ["i-501", "i-502", "i-503"]:
+            env.step(CloudFinOpsAction(action_type="terminate_instance", target_id=iid))
+        for iid, nt in [("i-504", "m5.large"), ("i-505", "c5.large"), ("i-506", "m5.large")]:
+            env.step(CloudFinOpsAction(action_type="resize_instance", target_id=iid, new_type=nt))
+        for iid in ["i-507", "i-508", "i-509"]:
+            env.step(CloudFinOpsAction(action_type="convert_to_spot", target_id=iid))
+        for iid in ["i-510", "i-511", "i-512"]:
+            env.step(CloudFinOpsAction(action_type="purchase_ri", target_id=iid))
+        obs_slow = env.step(CloudFinOpsAction(action_type="submit"))
+
+        # Fast should score at least slightly higher due to efficiency bonus
+        assert obs_fast.reward >= obs_slow.reward
+
+    def test_score_deterministic(self, env):
+        env.reset(task_id="comprehensive_fleet_review")
+        obs1 = env.step(CloudFinOpsAction(action_type="submit"))
+        env.reset(task_id="comprehensive_fleet_review")
+        obs2 = env.step(CloudFinOpsAction(action_type="submit"))
+        assert obs1.reward == obs2.reward
+
+
 # ── API endpoint tests ─────────────────────────────────────────────────────
 
 class TestAPI:
@@ -213,7 +338,7 @@ class TestAPI:
     def test_tasks_endpoint(self, client):
         r = client.get("/tasks")
         assert r.status_code == 200
-        assert len(r.json()["tasks"]) == 5
+        assert len(r.json()["tasks"]) == 6
 
     def test_reset_step_state_cycle(self, client):
         r = client.post("/reset", json={"task_id": "cleanup_unused_volumes"})
